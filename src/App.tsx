@@ -259,12 +259,9 @@ export default function App() {
               Sources &amp; brief context
             </h2>
             <p className="source-panel-hint">
-              This app helps account teams turn raw deal context into <strong>structured executive-brief copy</strong>{" "}
-              you can paste into a deck or doc: Affirm 101, Executive Summary, expected impact, integration,
-              and deal summary. Paste your <strong>Gong summary</strong>, <strong>planning or CRM notes</strong>, and{" "}
-              <strong>AE context</strong> (and optional files). Brief metadata is optional and only polishes the
-              Affirm 101 header. When something isn&apos;t in the notes, you&apos;ll see specific prompts (e.g.{" "}
-              confirm with AE, pull from pricing) instead of generic &quot;TBD&quot; text.
+              <strong>Executive Brief draft tool</strong> — paste Gong, CRM or planning notes, and AE context
+              (optional files too) to get structured copy for your template: Affirm 101 through deal summary.
+              Brief metadata is optional (Affirm 101 header). Missing fields show next-step prompts, not generic TBDs.
             </p>
           </div>
 

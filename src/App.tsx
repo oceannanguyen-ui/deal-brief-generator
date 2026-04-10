@@ -260,8 +260,8 @@ export default function App() {
             </h2>
             <p className="source-panel-hint">
               <strong>Executive Brief draft tool</strong> — paste Gong, CRM or planning notes, and AE context
-              (optional files too) to get structured copy for your template: Affirm 101 through deal summary.
-              Brief metadata is optional (Affirm 101 header). Missing fields show next-step prompts, not generic TBDs.
+              (optional files too) to get structured copy for your template, so you can prepare effectively for
+              meetings.
             </p>
           </div>
 

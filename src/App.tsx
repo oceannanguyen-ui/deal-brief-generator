@@ -259,10 +259,12 @@ export default function App() {
               Sources &amp; brief context
             </h2>
             <p className="source-panel-hint">
-              This tool drafts <strong>high-level executive brief copy</strong>—not meeting logistics.
-              Paste Gong summaries, planning or CRM notes, and AE context; optional metadata only refines
-              what shows on the Affirm 101 page. Gaps use targeted statuses (e.g. confirm with AE, pull
-              from pricing) instead of generic placeholders.
+              This app helps account teams turn raw deal context into <strong>structured executive-brief copy</strong>{" "}
+              you can paste into a deck or doc: Affirm 101, Executive Summary, expected impact, integration,
+              and deal summary. Paste your <strong>Gong summary</strong>, <strong>planning or CRM notes</strong>, and{" "}
+              <strong>AE context</strong> (and optional files). Brief metadata is optional and only polishes the
+              Affirm 101 header. When something isn&apos;t in the notes, you&apos;ll see specific prompts (e.g.{" "}
+              confirm with AE, pull from pricing) instead of generic &quot;TBD&quot; text.
             </p>
           </div>
 

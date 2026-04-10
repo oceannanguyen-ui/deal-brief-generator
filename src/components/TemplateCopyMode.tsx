@@ -78,10 +78,13 @@ export function TemplateCopyMode({ copy, blocks }: Props) {
       <header className="eb-preview-intro no-print">
         <h2 className="eb-preview-intro-title">Executive Brief · draft preview</h2>
         <p className="eb-preview-intro-sub">
-          Structure: <strong>Affirm 101</strong>, <strong>Executive Summary</strong>,{" "}
+          Open your <strong>Executive Brief template</strong> (slide deck or doc) and paste this draft into
+          the matching sections—<strong>Affirm 101</strong>, <strong>Executive Summary</strong>,{" "}
           <strong>Expected impact / Business case</strong>, <strong>Integration</strong>, and{" "}
-          <strong>Deal Summary</strong> (commercial, support, scope). Use <strong>Copy page text</strong>{" "}
-          or <strong>Copy bullets only</strong>; deal tables include row copy where helpful.
+          <strong>Deal Summary</strong> (commercial, support, scope). Add or edit anything that should be
+          tailored for this account. Use <strong>Copy page text</strong> for a full block,{" "}
+          <strong>Copy bullets only</strong> for lists, and <strong>Copy row</strong> on deal tables where
+          you only need one line.
         </p>
       </header>
 

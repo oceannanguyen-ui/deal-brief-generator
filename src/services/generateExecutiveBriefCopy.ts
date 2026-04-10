@@ -63,9 +63,67 @@ function maxSentences(text: string, max: number): string {
 }
 
 function oneLine(s: string, maxLen = 140): string {
-  const t = s.replace(/\s+/g, " ").trim();
+  const t = polishReadable(s.replace(/\s+/g, " ").trim());
   if (t.length <= maxLen) return t;
   return `${t.slice(0, maxLen - 1).trim()}…`;
+}
+
+/** Strip list junk and mid-sentence fragments so pasted Gong/CRM text reads cleanly. */
+function polishReadable(s: string): string {
+  let t = s.trim();
+  if (!t) return t;
+  t = t.replace(/^[,;:\s·•\-–—]+|[,;:\s·•\-–—]+$/g, "").trim();
+  t = t.replace(/^[,]\s*/, "");
+  if (/^(but|and|or|nor|however)\s+/i.test(t)) {
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return t.trim();
+}
+
+function normBulletKey(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").replace(/[.…]+$/g, "").trim().slice(0, 240);
+}
+
+function dedupeReadableStrings(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const p = polishReadable(raw);
+    if (!p || isMissingToken(p)) continue;
+    const k = normBulletKey(p);
+    if (k.length < 8 || seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
+function isUsableKpiPart(s: string): boolean {
+  const t = polishReadable(s);
+  if (!t || isMissingToken(t)) return false;
+  if (t.length < 2) return false;
+  if (!/[0-9%]/.test(t) && t.length < 4) return false;
+  if (/^[,·•\s\-–—]+$/.test(t)) return false;
+  return true;
+}
+
+function formatShoppersApprovalLine(users: string, approval: string, fallback: string): string {
+  const uOk = isUsableKpiPart(users);
+  const aOk = isUsableKpiPart(approval);
+  if (!uOk && !aOk) return `Shoppers / approval: ${fallback}`;
+  if (uOk && aOk) {
+    return oneLine(`Shoppers / approval: ${users.trim()} · ${approval.trim()}`, 120);
+  }
+  if (uOk) return oneLine(`Unique / active users: ${users.trim()}`, 100);
+  return oneLine(`Approval rate: ${approval.trim()}`, 100);
+}
+
+/** Use the first full sentence for dense CRM blobs so the headline isn’t a term sheet mashup. */
+function firstSentenceOrTrim(s: string, maxLen: number): string {
+  const p = polishReadable(s);
+  const m = p.match(/^([\s\S]{20,800}?[.!?])(?:\s+|$)/);
+  if (m?.[1]) return oneLine(m[1].trim(), maxLen);
+  return oneLine(p, maxLen);
 }
 
 function extractAeContext(raw: string): string {
@@ -86,11 +144,12 @@ function toProposalPair(commercial: string, hasPlanning: boolean): [string, stri
       STATUS_CONFIRM_AE,
     ];
   }
-  const chunks = commercial
+  const cleaned = polishReadable(commercial);
+  const chunks = cleaned
     .split(/(?<=[.!?])\s+|;|\n+/)
-    .map((s) => oneLine(s, 160))
-    .filter((s) => s.length > 8);
-  const a = chunks[0] ?? oneLine(commercial, 160);
+    .map((s) => polishReadable(s))
+    .filter((s) => s.length >= 14 && !/^[,·•\s]+$/.test(s));
+  const a = chunks[0] ?? oneLine(cleaned, 200);
   const b = chunks[1] ?? STATUS_CONFIRM_AE;
   return [oneLine(a, 200), oneLine(b, 200)];
 }
@@ -187,12 +246,11 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
     isMissingToken(k.yoyGrowth)
       ? `YoY growth: ${sa.hasPlanning ? STATUS_MISSING : STATUS_PULL_PRICING}`
       : oneLine(`YoY growth: ${k.yoyGrowth.trim()}`, 100),
-    isMissingToken(k.uniqueUsers) && isMissingToken(k.approvalRate)
-      ? `Shoppers / approval: ${STATUS_PULL_PRICING}`
-      : oneLine(
-          `Shoppers / approval: ${!isMissingToken(k.uniqueUsers) ? k.uniqueUsers.trim() : "—"} · ${!isMissingToken(k.approvalRate) ? k.approvalRate.trim() : "—"}`,
-          120,
-        ),
+    formatShoppersApprovalLine(
+      k.uniqueUsers,
+      k.approvalRate,
+      sa.hasPlanning ? STATUS_MISSING : STATUS_PULL_PRICING,
+    ),
   ];
 
   let missionIntro = "";
@@ -218,11 +276,11 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
   const g2 = goalFrom(mp[1], hasGongContent);
   const g3 = goalFrom(mp[2], hasGongContent);
 
-  const supportingPool = [
+  const supportingPool = dedupeReadableStrings([
     ...p.keyAsksGivesGets,
     ...p.openItemsNextSteps,
     ...p.anticipatedQa,
-  ].filter((x) => !isMissingToken(x));
+  ]).filter((x) => !isMissingToken(x));
   const supportingBullets: string[] = [];
   for (const s of supportingPool) {
     if (supportingBullets.length >= 4) break;
@@ -240,7 +298,7 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
 
   const impactHeadline = isMissingToken(p.marketingSummary)
     ? STATUS_MISSING
-    : oneLine(p.marketingSummary, 180);
+    : firstSentenceOrTrim(p.marketingSummary, 180);
   const impactBullets = clampList(
     [...mp.slice(0, 2).map((x) => oneLine(x, 140)), oneLine(p.implementationSummary, 140)].filter(
       (x) => !isMissingToken(x),
@@ -250,12 +308,23 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
     STATUS_MISSING,
   );
 
-  const openRisks = [p.anticipatedQa, p.openItemsNextSteps]
-    .flat()
-    .filter((x) => !isMissingToken(x))
-    .slice(0, 8);
-  const openQuestionsRisks = openRisks.length
-    ? openRisks.map((x) => oneLine(x.trim(), 200)).join("\n")
+  const nextPolished = dedupeReadableStrings(
+    p.openItemsNextSteps.filter((x) => !isMissingToken(x)),
+  );
+  const qaPolished = dedupeReadableStrings(
+    p.anticipatedQa.filter((x) => !isMissingToken(x)),
+  );
+  const depHintsArr = nextPolished.slice(0, 2);
+  const depKeys = new Set(depHintsArr.map(normBulletKey));
+  const riskPool = dedupeReadableStrings([
+    ...qaPolished,
+    ...nextPolished.filter((s) => !depKeys.has(normBulletKey(s))),
+  ]);
+  const openQuestionsRisks = riskPool.length
+    ? riskPool
+        .slice(0, 8)
+        .map((x) => oneLine(x, 200))
+        .join("\n\n")
     : hasGongContent
       ? STATUS_NOT_IN_GONG
       : STATUS_MISSING;
@@ -268,8 +337,9 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
     !isMissingToken(p.implementationSummary)
       ? oneLine(p.implementationSummary, 160)
       : STATUS_PULL_PRICING;
-  const depHints = p.openItemsNextSteps.filter((x) => !isMissingToken(x)).slice(0, 2).join(" · ");
-  const merchantDependencies = depHints ? oneLine(depHints, 200) : STATUS_CONFIRM_AE;
+  const merchantDependencies = depHintsArr.length
+    ? oneLine(depHintsArr.join(" · "), 200)
+    : STATUS_CONFIRM_AE;
 
   const commercialOne = isMissingToken(p.commercialSummary)
     ? STATUS_PULL_PRICING
@@ -280,7 +350,7 @@ export function buildExecutiveBriefTemplateCopy(input: BriefGenerationInput): Ex
     fundingSettlement: STATUS_PULL_PRICING,
     promoPrograms: isMissingToken(p.marketingSummary)
       ? STATUS_PULL_PRICING
-      : oneLine(p.marketingSummary, 160),
+      : firstSentenceOrTrim(p.marketingSummary, 160),
     termRenewal: /\brenew|msa|term|contract\b/i.test(p.commercialSummary) && !isMissingToken(p.commercialSummary)
       ? oneLine(p.commercialSummary, 180)
       : STATUS_PULL_PRICING,

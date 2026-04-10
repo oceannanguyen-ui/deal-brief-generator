@@ -17,6 +17,14 @@ function lines(text: string): string[] {
 }
 
 /** Match "Label: value" or "Label — value" (case-insensitive). */
+/** Trim junk often captured from lists (leading commas, bullets). */
+function scrubCapture(s: string): string {
+  return s
+    .replace(/\r/g, "")
+    .replace(/^[,;:\s·•\-–—]+|[,;:\s·•\-–—]+$/g, "")
+    .trim();
+}
+
 function labeledValue(text: string, labels: string[]): string | null {
   const body = text.replace(/\r/g, "");
   for (const label of labels) {
@@ -26,8 +34,8 @@ function labeledValue(text: string, labels: string[]): string | null {
     );
     const m = body.match(re);
     if (m?.[1]) {
-      const line = m[1].split(/\n/)[0]?.trim();
-      if (line) return line;
+      const line = scrubCapture(m[1].split(/\n/)[0] ?? "");
+      if (line.length > 1) return line;
     }
   }
   return null;
@@ -99,10 +107,43 @@ function inferDate(text: string): string | null {
 function inferKpi(text: string, patterns: RegExp[], labelFallback: string[]): string | null {
   for (const re of patterns) {
     const m = text.match(re);
-    if (m?.[1]) return m[1]!.trim();
+    if (m?.[1]) {
+      const v = scrubCapture(m[1]!);
+      if (v.length > 0) return v;
+    }
   }
   const lv = labeledValue(text, labelFallback);
   return lv;
+}
+
+function validGmvToken(s: string | null): string | null {
+  if (!s) return null;
+  const t = scrubCapture(s);
+  if (t.length < 1 || !/\d/.test(t)) return null;
+  return t;
+}
+
+function validYoyToken(s: string | null): string | null {
+  if (!s) return null;
+  const t = scrubCapture(s);
+  if (!/%/.test(t) || t.length < 2) return null;
+  return t;
+}
+
+function validUsersToken(s: string | null): string | null {
+  if (!s) return null;
+  const t = scrubCapture(s);
+  if (t.length < 2 || !/\d/.test(t)) return null;
+  if (/^[,·•\s]+$/.test(t)) return null;
+  return t;
+}
+
+function validApprovalToken(s: string | null): string | null {
+  if (!s) return null;
+  const t = scrubCapture(s);
+  if (!/^\d/.test(t) && !/%/.test(t)) return null;
+  if (!/%/.test(t) && t.length < 2) return null;
+  return t;
 }
 
 function inferTeamRole(text: string, labels: string[]): string | null {
@@ -113,10 +154,21 @@ function firstParagraph(text: string, maxLen: number): string {
   const t = text.replace(/\r/g, "").trim();
   if (!t) return "";
   const para = t.split(/\n\s*\n/)[0]?.replace(/\n/g, " ").trim() ?? t;
-  if (para.length <= maxLen) return para;
-  const cut = para.slice(0, maxLen);
+  const scrubbed = scrubCapture(para);
+  if (scrubbed.length <= maxLen) return endAtSentenceBoundary(scrubbed, maxLen);
+  const cut = scrubbed.slice(0, maxLen);
   const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+  const base = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).trim();
+  return endAtSentenceBoundary(base, maxLen) + "…";
+}
+
+/** Prefer stopping on a full sentence so we don't end on "and he will…". */
+function endAtSentenceBoundary(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  const chunk = s.slice(0, maxLen);
+  const m = chunk.match(/^([\s\S]*[.!?])(?=\s|$)/);
+  if (m?.[1] && m[1].length > 60) return m[1].trim();
+  return chunk.trim();
 }
 
 function sectionAfterHeading(text: string, re: RegExp, maxLen: number): string {
@@ -146,7 +198,7 @@ export function parseAccountPreReadFromSource(raw: string): AccountPreRead {
   const venue = pick(inferVenue(text));
   const duration = pick(inferDuration(text));
 
-  const gmv =
+  const gmvRaw =
     inferKpi(
       text,
       [
@@ -156,36 +208,40 @@ export function parseAccountPreReadFromSource(raw: string): AccountPreRead {
       ],
       ["gmv", "ttm gmv", "12m gmv", "volume"]
     ) ?? null;
+  const gmv = validGmvToken(gmvRaw);
 
-  const yoy =
+  const yoyRaw =
     inferKpi(
       text,
-        [
-          /([+\-]?\d+(?:\.\d+)?%)\s*(?:yoy|y\/o\/y|year[-\s]*over[-\s]*year)/i,
-          /(?:yoy|growth)\s*[:#]?\s*([+\-]?\d+(?:\.\d+)?%)/i,
-        ],
+ [
+        /([+\-]?\d+(?:\.\d+)?%)\s*(?:yoy|y\/o\/y|year[-\s]*over[-\s]*year)/i,
+        /(?:yoy|growth)\s*[:#]?\s*([+\-]?\d+(?:\.\d+)?%)/i,
+      ],
       ["yoy", "y\/y growth", "growth"]
     ) ?? null;
+  const yoy = validYoyToken(yoyRaw);
 
-  const users =
+  const usersRaw =
     inferKpi(
       text,
-        [
-          /([\d,]+)\s*(?:unique\s*users?|monthly\s*active|mau|users?)/i,
-          /users?\s*[:#]?\s*([\d,]+)/i,
-        ],
-      ["unique users", "mau", "users"]
+      [
+        /([\d,.]+[kmb]?)\s*(?:unique\s*users?|monthly\s*active|mau)/i,
+        /(?:unique\s*users?|mau)\s*[:#]?\s*([\d,.]+[kmb]?)/i,
+      ],
+      ["unique users", "mau"]
     ) ?? null;
+  const users = validUsersToken(usersRaw);
 
-  const approval =
+  const approvalRaw =
     inferKpi(
       text,
-        [
-          /([\d.]+%)\s*(?:approval|auth\s*rate|auth\s*approval)/i,
-          /approval\s*(?:rate)?\s*[:#]?\s*([\d.]+%)/i,
-        ],
+      [
+        /([\d.]+%)\s*(?:approval|auth\s*rate|auth\s*approval)/i,
+        /approval\s*(?:rate)?\s*[:#]?\s*([\d.]+%)/i,
+      ],
       ["approval rate", "auth rate", "approval"]
     ) ?? null;
+  const approval = validApprovalToken(approvalRaw);
 
   const aeLead = pick(
     inferTeamRole(text, ["ae\\s*lead", "account executive", "\\bae\\b", "rep"])
@@ -204,39 +260,42 @@ export function parseAccountPreReadFromSource(raw: string): AccountPreRead {
   if (!executiveSummary && text.length > 40) {
     executiveSummary = firstParagraph(text, 480);
   }
-  executiveSummary = pick(executiveSummary || null, PLACEHOLDER_NEEDS_INPUT);
+  executiveSummary = pick(scrubCapture(executiveSummary || ""), PLACEHOLDER_NEEDS_INPUT);
 
   let mp = bulletsUnderHeading(text, /\bmerchant\s*priorities?\b/i);
+  if (mp.length === 0) {
+    mp = bulletsUnderHeading(text, /\bgoals?\b/i);
+  }
   if (mp.length === 0 && /priority|priorities|focus areas?/i.test(lower)) {
     mp = bulletsUnderHeading(text, /\bpriorities?\b|\bfocus\b/i);
   }
-  mp = ensureList(mp);
+  mp = ensureList(mp.map((b) => scrubCapture(b)).filter((b) => b.length >= 2));
 
   let kg = bulletsUnderHeading(text, /\basks?\b|\bgive[s]?[-\s]*get/i);
   if (kg.length === 0) {
     kg = bulletsUnderHeading(text, /\bcommercial\s*terms?\b|\bdeal\s*structure\b/i);
   }
-  kg = ensureList(kg);
+  kg = ensureList(kg.map((b) => scrubCapture(b)).filter((b) => b.length >= 2));
 
   let commercial = sectionAfterHeading(text, /\bcommercial\s*summary\b/i, 450);
   if (!commercial) commercial = sectionAfterHeading(text, /\bpricing\b|\bmsa\b|\bcontract\b/i, 320);
-  commercial = pick(commercial || null, PLACEHOLDER_NEEDS_INPUT);
+  commercial = pick(scrubCapture(commercial || ""), PLACEHOLDER_NEEDS_INPUT);
 
   let impl = sectionAfterHeading(text, /\bimplementation\s*summary\b/i, 450);
   if (!impl) impl = sectionAfterHeading(text, /\bintegration\b|\brollout\b|\btimeline\b/i, 320);
-  impl = pick(impl || null, PLACEHOLDER_NEEDS_INPUT);
+  impl = pick(scrubCapture(impl || ""), PLACEHOLDER_NEEDS_INPUT);
 
   let mkt = sectionAfterHeading(text, /\bmarketing\s*summary\b/i, 450);
-  if (!mkt) mkt = sectionAfterHeading(text, /\bco-?marketing\b|\bcampaign\b|\bbrand\b/i, 280);
-  mkt = pick(mkt || null, PLACEHOLDER_NEEDS_INPUT);
+  if (!mkt) mkt = sectionAfterHeading(text, /\bco-?marketing\b|\bcampaign\b/i, 280);
+  mkt = pick(scrubCapture(mkt || ""), PLACEHOLDER_NEEDS_INPUT);
 
   let qa = bulletsUnderHeading(text, /\banticipated\s*q\s*&\s*a\b|\bq\s*&\s*a\b|\banticipated\s*questions?\b/i);
   if (qa.length === 0) qa = bulletsUnderHeading(text, /\bobjections?\b|\bconcerns?\b/i);
-  qa = ensureList(qa);
+  qa = ensureList(qa.map((b) => scrubCapture(b)).filter((b) => b.length >= 2));
 
   let next = bulletsUnderHeading(text, /\bopen\s*items?\b|\bnext\s*steps?\b|\baction\s*items?\b/i);
   if (next.length === 0) next = bulletsUnderHeading(text, /\bfollow[-\s]*up\b/i);
-  next = ensureList(next);
+  next = ensureList(next.map((b) => scrubCapture(b)).filter((b) => b.length >= 2));
 
   return {
     header: {
